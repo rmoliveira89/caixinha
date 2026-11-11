@@ -589,7 +589,7 @@ function renderPagina() {
         <label>Ou digite outro valor (mín. R$ 1)</label>
         <div class="livre-input-wrap" id="livreWrap">
           <span>R$</span>
-          <input id="valorLivre" type="number" inputmode="decimal" min="1" step="0.01" placeholder="0,00"
+          <input id="valorLivre" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00"
             onfocus="ativarLivre()" oninput="onLivreInput()" />
         </div>
       </div>
@@ -617,6 +617,140 @@ function renderPagina() {
     <p class="hint">A gorjeta é opcional e vai 100% para o entregador.<br>Valor mínimo: R$ 1,00</p>
   `;
 }
+
+/* ---------- Escolha do valor + PIX ---------- */
+function fmtBRL(v) { return Number(v).toFixed(2).replace(".", ","); }
+
+/** Atualiza o texto/estado do botão "Gerar PIX" conforme o valor escolhido. */
+function atualizarBotaoGerar() {
+  const b = document.getElementById("btnGerar");
+  if (!b) return;
+  const ok = Number(valorSel) >= 1;
+  b.disabled = !ok;
+  b.textContent = ok ? "💚 Gerar PIX · R$ " + fmtBRL(valorSel) : "💚 Informe no mínimo R$ 1,00";
+}
+
+/** Mudou o valor: o QR/código que estava na tela deixa de valer. */
+function esconderPix() {
+  pixPayload = null;
+  const box = document.getElementById("pixBox");
+  if (box) box.classList.remove("show");
+}
+
+window.selecionarValor = function (v) {
+  valorSel = Number(v);
+  modoLivre = false;
+  document.querySelectorAll(".val-btn").forEach(b => b.classList.toggle("sel", Number(b.getAttribute("data-v")) === valorSel));
+  const inp = document.getElementById("valorLivre");
+  if (inp) inp.value = "";
+  const w = document.getElementById("livreWrap");
+  if (w) w.classList.remove("focus");
+  esconderPix();
+  atualizarBotaoGerar();
+};
+
+window.ativarLivre = function () {
+  modoLivre = true;
+  document.querySelectorAll(".val-btn").forEach(b => b.classList.remove("sel"));
+  const w = document.getElementById("livreWrap");
+  if (w) w.classList.add("focus");
+  const inp = document.getElementById("valorLivre");
+  if (inp && !inp._blurLigado) {
+    inp._blurLigado = true;
+    inp.addEventListener("blur", () => { if (w) w.classList.remove("focus"); });
+  }
+  window.onLivreInput();
+};
+
+window.onLivreInput = function () {
+  modoLivre = true;
+  const inp = document.getElementById("valorLivre");
+  let txt = String(inp ? inp.value : "").replace(/[^\d.,]/g, "");        // aceita 7,5 ou 7.5
+  if (txt.indexOf(",") >= 0) txt = txt.replace(/\./g, "").replace(",", ".");   // 1.234,50 -> 1234.50
+  const n = parseFloat(txt);
+  valorSel = isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  esconderPix();
+  atualizarBotaoGerar();
+};
+
+/** Chave PIX como vem no cadastro -> formato aceito pelo BR Code (CPF/CNPJ só dígitos, telefone +55…, e-mail/aleatória como está). */
+function normalizarChavePix(c) {
+  c = String(c || "").trim();
+  if (/[@a-zA-Z]/.test(c)) return c;                 // e-mail ou chave aleatória
+  const d = c.replace(/\D/g, "");
+  if (/^\+?55\d{10,11}$/.test(c.replace(/[\s().-]/g, ""))) return "+" + d;   // já com 55
+  if (c.indexOf("(") >= 0) return "+55" + d;         // telefone formatado (44) 99999-9999
+  return d;                                          // CPF / CNPJ
+}
+
+window.gerarPix = function () {
+  const v = Number(valorSel);
+  if (!(v >= 1)) { toast("Valor mínimo: R$ 1,00"); return; }
+  if (!entregador || !String(entregador.chave || "").trim()) { toast("Chave PIX não cadastrada"); return; }
+  const pedido = (linkData && linkData.numero_pedido) || "";
+  try {
+    pixPayload = gerarPixPayload({
+      chave: normalizarChavePix(entregador.chave),
+      nome: entregador.nome || entregador.apelido,
+      cidade: "CAMPO MOURAO",
+      valor: v,
+      txid: "GORJETA" + pedido
+    });
+  } catch (e) {
+    console.warn(e);
+    toast(e && e.message ? e.message : "Não foi possível gerar o PIX");
+    return;
+  }
+  const box = document.getElementById("pixBox");
+  const code = document.getElementById("pixCode");
+  const canvas = document.getElementById("qrCanvas");
+  if (code) code.textContent = pixPayload;
+  if (box) box.classList.add("show");
+  try {
+    if (window.QRCode && canvas) {
+      QRCode.toCanvas(canvas, pixPayload, { width: 220, margin: 1, errorCorrectionLevel: "M" }, function (err) {
+        if (err) { console.warn(err); if (canvas.parentNode) canvas.parentNode.style.display = "none"; }
+      });
+    } else if (canvas && canvas.parentNode) {
+      canvas.parentNode.style.display = "none";      // biblioteca do QR não carregou: fica o "copia e cola"
+    }
+  } catch (e) { console.warn(e); }
+  if (box && box.scrollIntoView) setTimeout(() => box.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+};
+
+window.copiarPix = async function () {
+  if (!pixPayload) { toast("Gere o PIX primeiro"); return; }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(pixPayload);
+    } else {
+      throw new Error("sem clipboard");
+    }
+    toast("Código Pix copiado!");
+  } catch (e) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = pixPayload;
+      ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast(ok ? "Código Pix copiado!" : "Toque e segure o código para copiar");
+    } catch (e2) { toast("Toque e segure o código para copiar"); }
+  }
+};
+
+window.marcarEnviado = function () {
+  const apelido = (entregador && (entregador.apelido || entregador.nome)) || (linkData && linkData.entregador_nome) || "o entregador";
+  document.getElementById("app").innerHTML = `
+    <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1></div>
+    <div class="card obrigado">
+      <div class="big">🙏</div>
+      <h3>Muito obrigado!</h3>
+      <p style="color:var(--muted);font-size:14px">Sua gorjeta vai 100% para ${esc(apelido)}.</p>
+    </div>`;
+};
 
 /** Lista candidatos do mesmo número de pedido (pode haver mais de um no dia). */
 async function listarCandidatosPedido(client, numeroPedido) {
