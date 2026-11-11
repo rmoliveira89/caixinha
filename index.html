@@ -591,6 +591,59 @@ async function registrarEvento(tipo, valor) {
 }
 
 /* ---------- Carregamento ---------- */
+/** Localiza o entregador do pedido na tabela de pedidos (quando o link ainda não tinha entregador). */
+async function resolverEntregadorDoPedido(client, numeroPedido) {
+  const num = String(numeroPedido || "").trim();
+  if (!num) return null;
+  try {
+    // pega o registro mais recente desse número
+    const { data, error } = await client
+      .from("pedidos_entrega_dia")
+      .select("id,numero_pedido,cliente_nome,entregador_nome,entregador_nome_added,status,codigo_informado_em,created_at")
+      .eq("numero_pedido", num)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if (error || !data || !data.length) return null;
+
+    // prioriza quem já finalizou / tem nome de entregador
+    const comEnt = data.filter(p => String(p.entregador_nome || p.entregador_nome_added || "").trim());
+    const p = comEnt[0] || data[0];
+    const nome = String(p.entregador_nome || p.entregador_nome_added || "").trim();
+    return {
+      pedido: p,
+      entregador_nome: nome || null,
+      cliente_nome: p.cliente_nome || null,
+      pedido_id: p.id ? String(p.id) : null
+    };
+  } catch (e) {
+    console.warn("resolverEntregadorDoPedido", e);
+    return null;
+  }
+}
+
+async function buscarCadastroEntregador(client, nomeEnt, entregadorId) {
+  const nome = String(nomeEnt || "").trim();
+  if (!nome && !entregadorId) return null;
+  let ents = [];
+  if (nome) {
+    const r = await client.from("entregadores")
+      .select("id,nome,apelido,chave,ativo")
+      .ilike("nome", nome)
+      .limit(8);
+    ents = r.data || [];
+  }
+  if ((!ents || !ents.length) && entregadorId) {
+    const r = await client.from("entregadores")
+      .select("id,nome,apelido,chave,ativo")
+      .eq("id", entregadorId)
+      .maybeSingle();
+    if (r.data) ents = [r.data];
+  }
+  if (!ents || !ents.length) return null;
+  const nk = s => String(s || "").trim().toLowerCase();
+  return (nome ? ents.find(e => nk(e.nome) === nk(nome)) : null) || ents[0];
+}
+
 async function iniciar() {
   const codigo = extrairCodigo();
   if (!codigo) {
@@ -600,32 +653,47 @@ async function iniciar() {
 
   try {
     const client = getClient();
+    const numDoCodigo = extrairNumeroPedido(codigo);
+
+    // 1) tenta pelo código exato do link
     const { data, error } = await client
       .from("gorjeta_links")
       .select("*")
       .eq("codigo", codigo)
       .maybeSingle();
-
     if (error) throw error;
-    if (!data) {
-      // fallback: tenta pelo número do pedido no final do código
-      const num = extrairNumeroPedido(codigo);
-      if (num) {
-        const r2 = await client.from("gorjeta_links").select("*")
-          .eq("numero_pedido", num)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (r2.data) {
-          linkData = r2.data;
-        }
-      }
-      if (!linkData) {
-        renderErro("Pedido não encontrado", "Este link de gorjeta não existe ou expirou. Confira o QR Code da comanda.");
+
+    if (data) {
+      linkData = data;
+    } else if (numDoCodigo) {
+      // 2) fallback: mesmo número de pedido
+      const r2 = await client.from("gorjeta_links").select("*")
+        .eq("numero_pedido", numDoCodigo)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (r2.data) linkData = r2.data;
+    }
+
+    // 3) se não houver link, ainda tenta montar a partir do pedido real
+    if (!linkData) {
+      if (!numDoCodigo) {
+        renderErro("Pedido não encontrado", "Este link de gorjeta não existe. Confira o QR Code da comanda.");
         return;
       }
-    } else {
-      linkData = data;
+      const resolvido = await resolverEntregadorDoPedido(client, numDoCodigo);
+      if (!resolvido) {
+        renderErro("Pedido não encontrado", "Não achamos o pedido #" + numDoCodigo + " no sistema.");
+        return;
+      }
+      linkData = {
+        codigo: codigo,
+        numero_pedido: numDoCodigo,
+        cliente_nome: resolvido.cliente_nome,
+        entregador_nome: resolvido.entregador_nome,
+        pedido_id: resolvido.pedido_id,
+        ativo: true
+      };
     }
 
     if (linkData.ativo === false) {
@@ -633,27 +701,36 @@ async function iniciar() {
       return;
     }
 
-    // busca entregador (apelido + chave)
-    const nomeEnt = String(linkData.entregador_nome || "").trim();
-    if (nomeEnt) {
-      let { data: ents } = await client.from("entregadores")
-        .select("id,nome,apelido,chave,ativo")
-        .ilike("nome", nomeEnt)
-        .limit(5);
-      if ((!ents || !ents.length) && linkData.entregador_id) {
-        const r = await client.from("entregadores")
-          .select("id,nome,apelido,chave,ativo")
-          .eq("id", linkData.entregador_id)
-          .maybeSingle();
-        if (r.data) ents = [r.data];
-      }
-      // match case-insensitive exato
-      if (ents && ents.length) {
-        const nk = s => String(s || "").trim().toLowerCase();
-        entregador = ents.find(e => nk(e.nome) === nk(nomeEnt)) || ents[0];
+    // 4) entregador: o pedido só é ligado ao entregador depois (quem fez a entrega).
+    //    Se o link ainda não tem nome, busca em pedidos_entrega_dia pelo número.
+    let nomeEnt = String(linkData.entregador_nome || "").trim();
+    if (!nomeEnt) {
+      const num = String(linkData.numero_pedido || numDoCodigo || "").trim();
+      const resolvido = await resolverEntregadorDoPedido(client, num);
+      if (resolvido) {
+        if (resolvido.entregador_nome) {
+          nomeEnt = resolvido.entregador_nome;
+          linkData.entregador_nome = nomeEnt;
+        }
+        if (!linkData.cliente_nome && resolvido.cliente_nome) {
+          linkData.cliente_nome = resolvido.cliente_nome;
+        }
+        if (!linkData.pedido_id && resolvido.pedido_id) {
+          linkData.pedido_id = resolvido.pedido_id;
+        }
       }
     }
 
+    if (!nomeEnt) {
+      // pedido existe, mas ninguém pegou/finalizou ainda
+      renderErro(
+        "Entregador ainda não definido",
+        "O pedido #" + (linkData.numero_pedido || "—") + " ainda não está ligado a um entregador. Tente de novo depois da entrega."
+      );
+      return;
+    }
+
+    entregador = await buscarCadastroEntregador(client, nomeEnt, linkData.entregador_id);
     renderPagina();
   } catch (e) {
     console.error(e);
