@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#0e1118"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<title>Gorjeta · A Batataria</title>
+<style>
+  :root {
+    --bg: #0e1118;
+    --card: #141a24;
+    --border: #2c3340;
+    --text: #e6e8ef;
+    --muted: #8b93a7;
+    --accent: #f0c14a;
+    --green: #3dcc8a;
+    --blue: #6ab7ff;
+    --red: #ff6b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 40px;
+    line-height: 1.4;
+  }
+  .wrap { width: 100%; max-width: 420px; }
+  .logo {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  .logo .emoji { font-size: 42px; line-height: 1; }
+  .logo h1 {
+    font-size: 18px;
+    font-weight: 800;
+    margin-top: 6px;
+    color: var(--accent);
+  }
+  .logo p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 16px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 10px;
+  }
+
+  .info-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .info-row:last-child { margin-bottom: 0; }
+  .info-ico { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .info-lbl { font-size: 11px; color: var(--muted); }
+  .info-val { font-size: 16px; font-weight: 800; color: var(--text); word-break: break-word; }
+
+  .valores {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .val-btn {
+    appearance: none;
+    border: 2px solid var(--border);
+    background: #0e1118;
+    color: var(--text);
+    border-radius: 12px;
+    padding: 14px 4px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, transform .1s;
+  }
+  .val-btn:active { transform: scale(.97); }
+  .val-btn.sel {
+    border-color: var(--accent);
+    background: rgba(240,193,74,.12);
+    color: var(--accent);
+  }
+
+  .livre-box { margin-top: 4px; }
+  .livre-box label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .livre-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #0e1118;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 12px;
+  }
+  .livre-input-wrap.focus { border-color: var(--accent); }
+  .livre-input-wrap span { font-weight: 800; color: var(--muted); font-size: 16px; }
+  .livre-input-wrap input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 800;
+    padding: 10px 0;
+    outline: none;
+    width: 100%;
+  }
+
+  .btn {
+    appearance: none;
+    border: none;
+    border-radius: 14px;
+    padding: 16px 18px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    width: 100%;
+    transition: opacity .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-pix {
+    background: linear-gradient(135deg, #32bcad, #1a9b8a);
+    color: #fff;
+    margin-top: 14px;
+    box-shadow: 0 4px 16px rgba(50,188,173,.25);
+  }
+  .btn-copy {
+    background: #1c2433;
+    color: var(--text);
+    border: 1px solid var(--border);
+    margin-top: 10px;
+  }
+  .btn-sec {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+    font-size: 13px;
+    padding: 12px;
+  }
+
+  .pix-box {
+    display: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .pix-box.show { display: block; }
+  .pix-qr {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0 14px;
+  }
+  .pix-qr canvas, .pix-qr img {
+    border-radius: 12px;
+    background: #fff;
+    padding: 10px;
+    max-width: 220px;
+    width: 100%;
+  }
+  .pix-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    word-break: break-all;
+    background: #0e1118;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    color: var(--muted);
+    max-height: 80px;
+    overflow: auto;
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+  .status {
+    text-align: center;
+    padding: 40px 16px;
+    color: var(--muted);
+  }
+  .status .big { font-size: 48px; margin-bottom: 12px; }
+  .status h3 { color: var(--text); font-size: 18px; margin-bottom: 6px; }
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%) translateY(20px);
+    background: #1a2332;
+    border: 1px solid var(--green);
+    color: var(--green);
+    padding: 12px 20px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 99;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .obrigado {
+    text-align: center;
+    padding: 20px 10px;
+  }
+  .obrigado .big { font-size: 56px; }
+  .obrigado h3 { font-size: 20px; margin: 8px 0 4px; color: var(--green); }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="logo">
+    <div class="emoji">🥔</div>
+    <h1>A Batataria</h1>
+    <p>Gorjeta para o entregador</p>
+  </div>
+  <div class="status" id="loading">
+    <div class="big">🛵</div>
+    <h3>Carregando…</h3>
+    <p>Buscando dados do pedido</p>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script>
+/* ============================================================
+   CONFIG — use o mesmo projeto Supabase do app de entregas
+   ============================================================ */
+const SUPABASE_URL = "https://umptefufjwvtsoegutet.supabase.co";
+const SUPABASE_KEY = "sb_publishable_J-YJjz-t5TTkR5kXtBMAUQ_2xvDEcDY";
+
+/* ============================================================
+   Estado
+   ============================================================ */
+let sb = null;
+let linkData = null;   // registro gorjeta_links
+let entregador = null; // registro entregadores (apelido, chave, nome)
+let valorSel = 5;      // R$ padrão
+let modoLivre = false;
+let pixPayload = null;
+
+function getClient() {
+  if (sb) return sb;
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  return sb;
+}
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Extrai o código do link da URL.
+ * Aceita:
+ *   ?c=CODIGO
+ *   ?g=CODIGO
+ *   #CODIGO
+ *   /gorjeta/CODIGO  (último segmento)
+ * O código DEVE terminar com o número do pedido (ex: ab12cd34-12345)
+ */
+function extrairCodigo() {
+  const params = new URLSearchParams(location.search);
+  let c = params.get("c") || params.get("g") || params.get("codigo") || "";
+  if (!c && location.hash) c = location.hash.replace(/^#\/?/, "").trim();
+  if (!c) {
+    const parts = location.pathname.split("/").filter(Boolean);
+    const last = parts[parts.length - 1] || "";
+    if (last && last !== "gorjeta.html" && last !== "index.html") c = last;
+  }
+  return String(c).trim();
+}
+
+/** Número do pedido = sufixo após o último hífen/underscore, se for só dígitos */
+function extrairNumeroPedido(codigo) {
+  const m = String(codigo).match(/[-_](\d+)\s*$/);
+  return m ? m[1] : null;
+}
+
+/* ---------- CRC16 (para BR Code PIX) ---------- */
+function crc16(str) {
+  let crc = 0xffff;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+      crc &= 0xffff;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function tlv(id, value) {
+  const v = String(value);
+  const len = String(v.length).padStart(2, "0");
+  return id + len + v;
+}
+
+/**
+ * Gera payload PIX estático (copia e cola) com valor.
+ * chave: CPF, CNPJ, e-mail, telefone ou chave aleatória
+ */
+function gerarPixPayload({ chave, nome, cidade, valor, txid }) {
+  const nomeLimpo = String(nome || "ENTREGADOR").normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9 ]/g, "")
+    .substring(0, 25).trim().toUpperCase() || "ENTREGADOR";
+  const cidadeLimpa = String(cidade || "SAO PAULO").normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9 ]/g, "")
+    .substring(0, 15).trim().toUpperCase() || "SAO PAULO";
+  const chaveLimpa = String(chave || "").trim();
+  if (!chaveLimpa) throw new Error("Chave PIX não cadastrada");
+
+  const valorStr = Number(valor).toFixed(2);
+  const tx = String(txid || "***").replace(/[^A-Za-z0-9]/g, "").substring(0, 25) || "***";
+
+  const mai = tlv("00", "BR.GOV.BCB.PIX") + tlv("01", chaveLimpa);
+  const additional = tlv("05", tx);
+
+  let payload = "";
+  payload += tlv("00", "01");                          // Payload Format Indicator
+  payload += tlv("26", mai);                           // Merchant Account Information
+  payload += tlv("52", "0000");                        // MCC
+  payload += tlv("53", "986");                         // BRL
+  payload += tlv("54", valorStr);                      // Amount
+  payload += tlv("58", "BR");
+  payload += tlv("59", nomeLimpo);
+  payload += tlv("60", cidadeLimpa);
+  payload += tlv("62", additional);
+  payload += "6304";
+  payload += crc16(payload);
+  return payload;
+}
+
+/* ---------- UI ---------- */
+function renderErro(titulo, msg) {
+  document.getElementById("app").innerHTML = `
+    <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1></div>
+    <div class="status">
+      <div class="big">😕</div>
+      <h3>${esc(titulo)}</h3>
+      <p>${esc(msg)}</p>
+    </div>`;
+}
+
+function renderPagina() {
+  const apelido = (entregador && (entregador.apelido || entregador.nome)) || linkData.entregador_nome || "Entregador";
+  const cliente = linkData.cliente_nome || "Cliente";
+  const pedido = linkData.numero_pedido || extrairNumeroPedido(linkData.codigo) || "—";
+  const temChave = !!(entregador && entregador.chave && String(entregador.chave).trim());
+
+  document.getElementById("app").innerHTML = `
+    <div class="logo">
+      <div class="emoji">🥔</div>
+      <h1>A Batataria</h1>
+      <p>Gorjeta para o entregador</p>
+    </div>
+
+    <div class="card">
+      <h2>Entrega</h2>
+      <div class="info-row">
+        <div class="info-ico">🛵</div>
+        <div>
+          <div class="info-lbl">Entregador</div>
+          <div class="info-val">${esc(apelido)}</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-ico">👤</div>
+        <div>
+          <div class="info-lbl">Cliente</div>
+          <div class="info-val">${esc(cliente)}</div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-ico">🧾</div>
+        <div>
+          <div class="info-lbl">Pedido</div>
+          <div class="info-val">#${esc(pedido)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="cardValores">
+      <h2>Escolha o valor da gorjeta</h2>
+      <div class="valores">
+        <button type="button" class="val-btn" data-v="1" onclick="selecionarValor(1)">R$ 1</button>
+        <button type="button" class="val-btn" data-v="3" onclick="selecionarValor(3)">R$ 3</button>
+        <button type="button" class="val-btn sel" data-v="5" onclick="selecionarValor(5)">R$ 5</button>
+        <button type="button" class="val-btn" data-v="10" onclick="selecionarValor(10)">R$ 10</button>
+      </div>
+      <div class="livre-box">
+        <label>Ou digite outro valor (mín. R$ 1)</label>
+        <div class="livre-input-wrap" id="livreWrap">
+          <span>R$</span>
+          <input id="valorLivre" type="number" inputmode="decimal" min="1" step="0.01" placeholder="0,00"
+            onfocus="ativarLivre()" oninput="onLivreInput()" />
+        </div>
+      </div>
+
+      ${temChave ? `
+        <button type="button" class="btn btn-pix" id="btnGerar" onclick="gerarPix()">
+          💚 Gerar PIX · R$ ${Number(valorSel).toFixed(2).replace(".", ",")}
+        </button>
+        <div class="pix-box" id="pixBox">
+          <div class="hint" style="margin-top:0;margin-bottom:8px">Escaneie o QR Code no app do seu banco<br>ou copie o código Pix abaixo</div>
+          <div class="pix-qr"><canvas id="qrCanvas"></canvas></div>
+          <div class="pix-code" id="pixCode"></div>
+          <button type="button" class="btn btn-copy" onclick="copiarPix()">📋 Copiar código Pix</button>
+          <button type="button" class="btn btn-sec" onclick="marcarEnviado()">✓ Já paguei a gorjeta</button>
+        </div>
+      ` : `
+        <div class="status" style="padding:20px 0">
+          <div class="big" style="font-size:32px">🔑</div>
+          <h3 style="font-size:15px">Chave Pix não cadastrada</h3>
+          <p style="font-size:12px">O entregador ainda não informou a chave Pix no sistema.</p>
+        </div>
+      `}
+    </div>
+
+    <p class="hint">A gorjeta é opcional e vai 100% para o entregador.<br>Valor mínimo: R$ 1,00</p>
+  `;
+}
+
+window.selecionarValor = function (v) {
+  modoLivre = false;
+  valorSel = Number(v);
+  document.querySelectorAll(".val-btn").forEach(b => {
+    b.classList.toggle("sel", Number(b.getAttribute("data-v")) === valorSel);
+  });
+  const inp = document.getElementById("valorLivre");
+  if (inp) inp.value = "";
+  const wrap = document.getElementById("livreWrap");
+  if (wrap) wrap.classList.remove("focus");
+  atualizarBotao();
+  esconderPix();
+};
+
+window.ativarLivre = function () {
+  modoLivre = true;
+  document.querySelectorAll(".val-btn").forEach(b => b.classList.remove("sel"));
+  const wrap = document.getElementById("livreWrap");
+  if (wrap) wrap.classList.add("focus");
+};
+
+window.onLivreInput = function () {
+  modoLivre = true;
+  document.querySelectorAll(".val-btn").forEach(b => b.classList.remove("sel"));
+  const inp = document.getElementById("valorLivre");
+  let n = parseFloat(String(inp.value || "").replace(",", "."));
+  if (!isFinite(n) || n < 0) n = 0;
+  valorSel = n;
+  atualizarBotao();
+  esconderPix();
+};
+
+function atualizarBotao() {
+  const btn = document.getElementById("btnGerar");
+  if (!btn) return;
+  const ok = valorSel >= 1;
+  btn.disabled = !ok;
+  btn.textContent = ok
+    ? `💚 Gerar PIX · R$ ${Number(valorSel).toFixed(2).replace(".", ",")}`
+    : "💚 Digite um valor a partir de R$ 1";
+}
+
+function esconderPix() {
+  const box = document.getElementById("pixBox");
+  if (box) box.classList.remove("show");
+  pixPayload = null;
+}
+
+window.gerarPix = function () {
+  if (valorSel < 1) {
+    toast("Valor mínimo é R$ 1,00");
+    return;
+  }
+  if (!entregador || !entregador.chave) {
+    toast("Chave Pix não cadastrada");
+    return;
+  }
+  try {
+    const nomePix = entregador.apelido || entregador.nome || "Entregador";
+    const txid = "GORJ" + String(linkData.numero_pedido || "").replace(/\D/g, "").slice(-8) + Date.now().toString(36).slice(-4);
+    pixPayload = gerarPixPayload({
+      chave: entregador.chave,
+      nome: nomePix,
+      cidade: "SAO PAULO",
+      valor: valorSel,
+      txid
+    });
+    const codeEl = document.getElementById("pixCode");
+    if (codeEl) codeEl.textContent = pixPayload;
+    const canvas = document.getElementById("qrCanvas");
+    if (canvas && window.QRCode) {
+      QRCode.toCanvas(canvas, pixPayload, {
+        width: 200,
+        margin: 1,
+        color: { dark: "#000000", light: "#ffffff" }
+      }, err => { if (err) console.warn(err); });
+    }
+    document.getElementById("pixBox").classList.add("show");
+    // registra tentativa (opcional)
+    registrarEvento("pix_gerado", valorSel);
+    document.getElementById("pixBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    console.error(e);
+    toast("Erro ao gerar Pix: " + (e.message || e));
+  }
+};
+
+window.copiarPix = async function () {
+  if (!pixPayload) return;
+  try {
+    await navigator.clipboard.writeText(pixPayload);
+    toast("Código Pix copiado!");
+  } catch (e) {
+    // fallback
+    const ta = document.createElement("textarea");
+    ta.value = pixPayload;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    toast("Código Pix copiado!");
+  }
+};
+
+window.marcarEnviado = async function () {
+  await registrarEvento("pago_cliente", valorSel);
+  document.getElementById("app").innerHTML = `
+    <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1></div>
+    <div class="card obrigado">
+      <div class="big">🙏</div>
+      <h3>Obrigado!</h3>
+      <p style="color:var(--muted);font-size:14px;margin-top:6px">
+        Sua gorjeta de <b style="color:var(--accent)">R$ ${Number(valorSel).toFixed(2).replace(".", ",")}</b>
+        para <b>${esc((entregador && (entregador.apelido || entregador.nome)) || "o entregador")}</b> significa muito.
+      </p>
+    </div>
+    <p class="hint">Pode fechar esta página.</p>`;
+};
+
+async function registrarEvento(tipo, valor) {
+  try {
+    const client = getClient();
+    await client.from("gorjeta_eventos").insert({
+      link_id: linkData.id,
+      codigo: linkData.codigo,
+      numero_pedido: linkData.numero_pedido,
+      entregador_nome: linkData.entregador_nome,
+      tipo,
+      valor: Number(valor) || null
+    });
+  } catch (e) {
+    console.warn("evento", e);
+  }
+}
+
+/* ---------- Carregamento ---------- */
+async function iniciar() {
+  const codigo = extrairCodigo();
+  if (!codigo) {
+    renderErro("Link inválido", "Escaneie o QR Code da comanda para abrir a página de gorjeta.");
+    return;
+  }
+
+  try {
+    const client = getClient();
+    const { data, error } = await client
+      .from("gorjeta_links")
+      .select("*")
+      .eq("codigo", codigo)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      // fallback: tenta pelo número do pedido no final do código
+      const num = extrairNumeroPedido(codigo);
+      if (num) {
+        const r2 = await client.from("gorjeta_links").select("*")
+          .eq("numero_pedido", num)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (r2.data) {
+          linkData = r2.data;
+        }
+      }
+      if (!linkData) {
+        renderErro("Pedido não encontrado", "Este link de gorjeta não existe ou expirou. Confira o QR Code da comanda.");
+        return;
+      }
+    } else {
+      linkData = data;
+    }
+
+    if (linkData.ativo === false) {
+      renderErro("Link desativado", "Esta gorjeta não está mais disponível.");
+      return;
+    }
+
+    // busca entregador (apelido + chave)
+    const nomeEnt = String(linkData.entregador_nome || "").trim();
+    if (nomeEnt) {
+      let { data: ents } = await client.from("entregadores")
+        .select("id,nome,apelido,chave,ativo")
+        .ilike("nome", nomeEnt)
+        .limit(5);
+      if ((!ents || !ents.length) && linkData.entregador_id) {
+        const r = await client.from("entregadores")
+          .select("id,nome,apelido,chave,ativo")
+          .eq("id", linkData.entregador_id)
+          .maybeSingle();
+        if (r.data) ents = [r.data];
+      }
+      // match case-insensitive exato
+      if (ents && ents.length) {
+        const nk = s => String(s || "").trim().toLowerCase();
+        entregador = ents.find(e => nk(e.nome) === nk(nomeEnt)) || ents[0];
+      }
+    }
+
+    renderPagina();
+  } catch (e) {
+    console.error(e);
+    renderErro("Erro de conexão", "Não foi possível carregar os dados. Tente novamente em instantes.");
+  }
+}
+
+iniciar();
+</script>
+</body>
+</html>
