@@ -285,29 +285,49 @@ function esc(s) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** Extrai o código do link da URL.
- * Aceita:
- *   ?c=CODIGO
- *   ?g=CODIGO
- *   #CODIGO
- *   /gorjeta/CODIGO  (último segmento)
- * O código DEVE terminar com o número do pedido (ex: ab12cd34-12345)
+/**
+ * Extrai identificador da URL. Formatos aceitos (do mais simples ao legado):
+ *   https://site/caixinha/3815          ← preferido (só o número)
+ *   https://site/caixinha/#3815
+ *   https://site/caixinha/?3815
+ *   https://site/caixinha/?p=3815
+ *   https://site/caixinha/?c=token-3815  (legado)
  */
 function extrairCodigo() {
   const params = new URLSearchParams(location.search);
-  let c = params.get("c") || params.get("g") || params.get("codigo") || "";
-  if (!c && location.hash) c = location.hash.replace(/^#\/?/, "").trim();
+
+  // ?p=3815 | ?n=3815 | ?pedido=3815 | ?c=... | ?g=...
+  let c = params.get("p") || params.get("n") || params.get("pedido")
+       || params.get("c") || params.get("g") || params.get("codigo") || "";
+
+  // ?3815  (query string só com o número, sem chave)
+  if (!c && location.search) {
+    const raw = location.search.replace(/^\?/, "").trim();
+    if (/^\d{1,12}$/.test(raw)) c = raw;
+  }
+
+  // #3815
+  if (!c && location.hash) {
+    c = location.hash.replace(/^#\/?/, "").trim();
+  }
+
+  // /caixinha/3815  ou  /3815  (GitHub Pages: use 404.html = index)
   if (!c) {
     const parts = location.pathname.split("/").filter(Boolean);
-    const last = parts[parts.length - 1] || "";
-    if (last && last !== "gorjeta.html" && last !== "index.html") c = last;
+    const skip = new Set(["index.html", "gorjeta.html", "404.html", "caixinha"]);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const seg = parts[i];
+      if (!skip.has(seg.toLowerCase())) { c = seg; break; }
+    }
   }
-  return String(c).trim();
+  return String(c || "").trim();
 }
 
-/** Número do pedido = sufixo após o último hífen/underscore, se for só dígitos */
+/** Número do pedido: código só dígitos, ou sufixo após - / _ */
 function extrairNumeroPedido(codigo) {
-  const m = String(codigo).match(/[-_](\d+)\s*$/);
+  const s = String(codigo || "").trim();
+  if (/^\d{1,12}$/.test(s)) return s;
+  const m = s.match(/[-_](\d+)\s*$/);
   return m ? m[1] : null;
 }
 
@@ -375,6 +395,149 @@ function renderErro(titulo, msg) {
       <p>${esc(msg)}</p>
     </div>`;
 }
+
+/** Normaliza nome para comparação (minúsculo, sem acento, só letras/números/espaços). */
+function normalizarNome(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Confere se o nome digitado corresponde ao nome da comanda. */
+function nomesBatem(digitado, cadastrado) {
+  const a = normalizarNome(digitado);
+  const b = normalizarNome(cadastrado);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // aceita se o cliente digitou o nome completo contido no cadastrado (ou o contrário),
+  // exigindo pelo menos 3 caracteres para evitar chute trivial
+  if (a.length >= 3 && (b.indexOf(a) >= 0 || a.indexOf(b) >= 0)) return true;
+  // compara por tokens (todas as palavras digitadas existem no cadastrado)
+  const ta = a.split(" ").filter(Boolean);
+  const tb = new Set(b.split(" ").filter(Boolean));
+  if (ta.length >= 2 && ta.every(t => tb.has(t))) return true;
+  return false;
+}
+
+let _candidatos = []; // pedidos candidatos com o mesmo número
+let _numeroPedidoGate = "";
+let _codigoGate = "";
+
+function renderConfirmacaoNome(numeroPedido) {
+  document.getElementById("app").innerHTML = `
+    <div class="logo">
+      <div class="emoji">🥔</div>
+      <h1>A Batataria</h1>
+      <p>Gorjeta para o entregador</p>
+    </div>
+    <div class="card">
+      <h2>Confirme o pedido</h2>
+      <div class="info-row">
+        <div class="info-ico">🧾</div>
+        <div>
+          <div class="info-lbl">Número do pedido</div>
+          <div class="info-val">#${esc(numeroPedido)}</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin:12px 0 10px;line-height:1.45">
+        Para proteger seus dados, digite o <b style="color:var(--text)">nome do cliente</b> exatamente como está na comanda.
+      </p>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Nome do cliente na comanda</label>
+      <input id="confNomeCliente" type="text" autocomplete="name" placeholder="Ex.: Maria Silva"
+        style="width:100%;padding:14px 12px;border-radius:12px;border:2px solid var(--border);background:#0e1118;color:var(--text);font-size:16px;font-weight:700;outline:none;margin-bottom:8px"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarNomeCliente();}" />
+      <div id="confNomeErro" style="font-size:12px;color:var(--red);min-height:18px;margin-bottom:8px;text-align:center"></div>
+      <button type="button" class="btn btn-pix" style="margin-top:4px" onclick="confirmarNomeCliente()">Continuar</button>
+    </div>
+    <p class="hint">Não mostramos nome do cliente nem do entregador antes desta confirmação.</p>`;
+  setTimeout(() => {
+    const el = document.getElementById("confNomeCliente");
+    if (el) el.focus();
+  }, 50);
+}
+
+window.confirmarNomeCliente = async function () {
+  const inp = document.getElementById("confNomeCliente");
+  const err = document.getElementById("confNomeErro");
+  const digitado = (inp && inp.value || "").trim();
+  if (!digitado) {
+    if (err) err.textContent = "Digite o nome do cliente como na comanda.";
+    return;
+  }
+  if (err) err.textContent = "Verificando…";
+
+  const matches = (_candidatos || []).filter(c => nomesBatem(digitado, c.cliente_nome));
+  if (!matches.length) {
+    if (err) err.textContent = "Nome não confere. Confira na comanda e tente de novo.";
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+
+  // se vários baterem (mesmo nº + mesmo nome), prioriza o que tem entregador e o mais recente
+  matches.sort((a, b) => {
+    const ea = a.entregador_nome ? 1 : 0, eb = b.entregador_nome ? 1 : 0;
+    if (eb !== ea) return eb - ea;
+    return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+  });
+  const escolhido = matches[0];
+
+  linkData = {
+    id: null,
+    codigo: _codigoGate,
+    numero_pedido: String(escolhido.numero_pedido || _numeroPedidoGate),
+    pedido_id: escolhido.id ? String(escolhido.id) : null,
+    cliente_nome: escolhido.cliente_nome || digitado,
+    entregador_nome: escolhido.entregador_nome || null,
+    ativo: true
+  };
+
+  // se existir link em gorjeta_links para este pedido, reaproveita id/código
+  try {
+    const client = getClient();
+    let q = client.from("gorjeta_links").select("*").eq("ativo", true).order("created_at", { ascending: false }).limit(5);
+    if (escolhido.id) {
+      const r = await client.from("gorjeta_links").select("*").eq("pedido_id", String(escolhido.id)).eq("ativo", true).maybeSingle();
+      if (r.data) Object.assign(linkData, r.data, {
+        cliente_nome: linkData.cliente_nome,
+        entregador_nome: linkData.entregador_nome || r.data.entregador_nome
+      });
+    } else {
+      const r = await client.from("gorjeta_links").select("*")
+        .eq("numero_pedido", linkData.numero_pedido)
+        .eq("ativo", true)
+        .order("created_at", { ascending: false })
+        .limit(3);
+      const lista = r.data || [];
+      const peloNome = lista.find(x => nomesBatem(digitado, x.cliente_nome));
+      if (peloNome) Object.assign(linkData, peloNome, {
+        cliente_nome: linkData.cliente_nome,
+        entregador_nome: linkData.entregador_nome || peloNome.entregador_nome
+      });
+      else if (lista[0] && !lista[0].cliente_nome) Object.assign(linkData, { id: lista[0].id, codigo: lista[0].codigo || linkData.codigo });
+    }
+  } catch (e) { console.warn(e); }
+
+  let nomeEnt = String(linkData.entregador_nome || "").trim();
+  if (!nomeEnt) {
+    renderErro(
+      "Entregador ainda não definido",
+      "O pedido #" + (linkData.numero_pedido || "—") + " ainda não está ligado a um entregador. Tente de novo depois da entrega."
+    );
+    return;
+  }
+
+  try {
+    const client = getClient();
+    entregador = await buscarCadastroEntregador(client, nomeEnt, linkData.entregador_id);
+  } catch (e) {
+    console.warn(e);
+  }
+  renderPagina();
+};
 
 function renderPagina() {
   const apelido = (entregador && (entregador.apelido || entregador.nome)) || linkData.entregador_nome || "Entregador";
@@ -455,148 +618,68 @@ function renderPagina() {
   `;
 }
 
-window.selecionarValor = function (v) {
-  modoLivre = false;
-  valorSel = Number(v);
-  document.querySelectorAll(".val-btn").forEach(b => {
-    b.classList.toggle("sel", Number(b.getAttribute("data-v")) === valorSel);
-  });
-  const inp = document.getElementById("valorLivre");
-  if (inp) inp.value = "";
-  const wrap = document.getElementById("livreWrap");
-  if (wrap) wrap.classList.remove("focus");
-  atualizarBotao();
-  esconderPix();
-};
+/** Lista candidatos do mesmo número de pedido (pode haver mais de um no dia). */
+async function listarCandidatosPedido(client, numeroPedido) {
+  const num = String(numeroPedido || "").trim();
+  if (!num) return [];
+  const mapa = new Map(); // key = id ou nome+created
 
-window.ativarLivre = function () {
-  modoLivre = true;
-  document.querySelectorAll(".val-btn").forEach(b => b.classList.remove("sel"));
-  const wrap = document.getElementById("livreWrap");
-  if (wrap) wrap.classList.add("focus");
-};
-
-window.onLivreInput = function () {
-  modoLivre = true;
-  document.querySelectorAll(".val-btn").forEach(b => b.classList.remove("sel"));
-  const inp = document.getElementById("valorLivre");
-  let n = parseFloat(String(inp.value || "").replace(",", "."));
-  if (!isFinite(n) || n < 0) n = 0;
-  valorSel = n;
-  atualizarBotao();
-  esconderPix();
-};
-
-function atualizarBotao() {
-  const btn = document.getElementById("btnGerar");
-  if (!btn) return;
-  const ok = valorSel >= 1;
-  btn.disabled = !ok;
-  btn.textContent = ok
-    ? `💚 Gerar PIX · R$ ${Number(valorSel).toFixed(2).replace(".", ",")}`
-    : "💚 Digite um valor a partir de R$ 1";
-}
-
-function esconderPix() {
-  const box = document.getElementById("pixBox");
-  if (box) box.classList.remove("show");
-  pixPayload = null;
-}
-
-window.gerarPix = function () {
-  if (valorSel < 1) {
-    toast("Valor mínimo é R$ 1,00");
-    return;
-  }
-  if (!entregador || !entregador.chave) {
-    toast("Chave Pix não cadastrada");
-    return;
-  }
   try {
-    const nomePix = entregador.apelido || entregador.nome || "Entregador";
-    const txid = "GORJ" + String(linkData.numero_pedido || "").replace(/\D/g, "").slice(-8) + Date.now().toString(36).slice(-4);
-    pixPayload = gerarPixPayload({
-      chave: entregador.chave,
-      nome: nomePix,
-      cidade: "SAO PAULO",
-      valor: valorSel,
-      txid
+    const { data } = await client
+      .from("pedidos_entrega_dia")
+      .select("id,numero_pedido,cliente_nome,entregador_nome,entregador_nome_added,status,codigo_informado_em,created_at,data")
+      .eq("numero_pedido", num)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    (data || []).forEach(p => {
+      const ent = String(p.entregador_nome || p.entregador_nome_added || "").trim() || null;
+      mapa.set(String(p.id), {
+        id: p.id,
+        numero_pedido: p.numero_pedido,
+        cliente_nome: p.cliente_nome,
+        entregador_nome: ent,
+        created_at: p.created_at,
+        data: p.data,
+        fonte: "pedido"
+      });
     });
-    const codeEl = document.getElementById("pixCode");
-    if (codeEl) codeEl.textContent = pixPayload;
-    const canvas = document.getElementById("qrCanvas");
-    if (canvas && window.QRCode) {
-      QRCode.toCanvas(canvas, pixPayload, {
-        width: 200,
-        margin: 1,
-        color: { dark: "#000000", light: "#ffffff" }
-      }, err => { if (err) console.warn(err); });
-    }
-    document.getElementById("pixBox").classList.add("show");
-    // registra tentativa (opcional)
-    registrarEvento("pix_gerado", valorSel);
-    document.getElementById("pixBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
-  } catch (e) {
-    console.error(e);
-    toast("Erro ao gerar Pix: " + (e.message || e));
-  }
-};
+  } catch (e) { console.warn(e); }
 
-window.copiarPix = async function () {
-  if (!pixPayload) return;
   try {
-    await navigator.clipboard.writeText(pixPayload);
-    toast("Código Pix copiado!");
-  } catch (e) {
-    // fallback
-    const ta = document.createElement("textarea");
-    ta.value = pixPayload;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    toast("Código Pix copiado!");
-  }
-};
-
-window.marcarEnviado = async function () {
-  await registrarEvento("pago_cliente", valorSel);
-  document.getElementById("app").innerHTML = `
-    <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1></div>
-    <div class="card obrigado">
-      <div class="big">🙏</div>
-      <h3>Obrigado!</h3>
-      <p style="color:var(--muted);font-size:14px;margin-top:6px">
-        Sua gorjeta de <b style="color:var(--accent)">R$ ${Number(valorSel).toFixed(2).replace(".", ",")}</b>
-        para <b>${esc((entregador && (entregador.apelido || entregador.nome)) || "o entregador")}</b> significa muito.
-      </p>
-    </div>
-    <p class="hint">Pode fechar esta página.</p>`;
-};
-
-async function registrarEvento(tipo, valor) {
-  try {
-    const client = getClient();
-    await client.from("gorjeta_eventos").insert({
-      link_id: linkData.id,
-      codigo: linkData.codigo,
-      numero_pedido: linkData.numero_pedido,
-      entregador_nome: linkData.entregador_nome,
-      tipo,
-      valor: Number(valor) || null
+    const { data } = await client
+      .from("gorjeta_links")
+      .select("*")
+      .eq("numero_pedido", num)
+      .eq("ativo", true)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    (data || []).forEach(l => {
+      const key = l.pedido_id ? String(l.pedido_id) : ("link:" + l.id);
+      if (mapa.has(key)) {
+        const o = mapa.get(key);
+        if (!o.cliente_nome && l.cliente_nome) o.cliente_nome = l.cliente_nome;
+        if (!o.entregador_nome && l.entregador_nome) o.entregador_nome = l.entregador_nome;
+      } else {
+        mapa.set(key, {
+          id: l.pedido_id || null,
+          numero_pedido: l.numero_pedido,
+          cliente_nome: l.cliente_nome,
+          entregador_nome: l.entregador_nome || null,
+          created_at: l.created_at,
+          fonte: "link",
+          link: l
+        });
+      }
     });
-  } catch (e) {
-    console.warn("evento", e);
-  }
+  } catch (e) { console.warn(e); }
+
+  return Array.from(mapa.values()).filter(c => String(c.cliente_nome || "").trim());
 }
 
-/* ---------- Carregamento ---------- */
-/** Localiza o entregador do pedido na tabela de pedidos (quando o link ainda não tinha entregador). */
 async function resolverEntregadorDoPedido(client, numeroPedido) {
   const num = String(numeroPedido || "").trim();
   if (!num) return null;
   try {
-    // pega o registro mais recente desse número
     const { data, error } = await client
       .from("pedidos_entrega_dia")
       .select("id,numero_pedido,cliente_nome,entregador_nome,entregador_nome_added,status,codigo_informado_em,created_at")
@@ -604,8 +687,6 @@ async function resolverEntregadorDoPedido(client, numeroPedido) {
       .order("created_at", { ascending: false })
       .limit(5);
     if (error || !data || !data.length) return null;
-
-    // prioriza quem já finalizou / tem nome de entregador
     const comEnt = data.filter(p => String(p.entregador_nome || p.entregador_nome_added || "").trim());
     const p = comEnt[0] || data[0];
     const nome = String(p.entregador_nome || p.entregador_nome_added || "").trim();
@@ -654,84 +735,51 @@ async function iniciar() {
   try {
     const client = getClient();
     const numDoCodigo = extrairNumeroPedido(codigo);
+    _codigoGate = codigo;
+    _numeroPedidoGate = numDoCodigo || "";
 
-    // 1) tenta pelo código exato do link
-    const { data, error } = await client
-      .from("gorjeta_links")
-      .select("*")
-      .eq("codigo", codigo)
-      .maybeSingle();
-    if (error) throw error;
-
-    if (data) {
-      linkData = data;
-    } else if (numDoCodigo) {
-      // 2) fallback: mesmo número de pedido
-      const r2 = await client.from("gorjeta_links").select("*")
-        .eq("numero_pedido", numDoCodigo)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (r2.data) linkData = r2.data;
-    }
-
-    // 3) se não houver link, ainda tenta montar a partir do pedido real
-    if (!linkData) {
-      if (!numDoCodigo) {
-        renderErro("Pedido não encontrado", "Este link de gorjeta não existe. Confira o QR Code da comanda.");
+    // descobre o número do pedido (código ou link)
+    let numero = numDoCodigo;
+    if (!numero) {
+      const { data } = await client.from("gorjeta_links").select("*").eq("codigo", codigo).maybeSingle();
+      if (data && data.numero_pedido) numero = String(data.numero_pedido);
+      if (data && data.ativo === false) {
+        renderErro("Link desativado", "Esta gorjeta não está mais disponível.");
         return;
       }
-      const resolvido = await resolverEntregadorDoPedido(client, numDoCodigo);
-      if (!resolvido) {
-        renderErro("Pedido não encontrado", "Não achamos o pedido #" + numDoCodigo + " no sistema.");
-        return;
+    }
+    if (!numero) {
+      renderErro("Pedido não encontrado", "Não foi possível identificar o número do pedido neste link.");
+      return;
+    }
+    _numeroPedidoGate = numero;
+
+    // candidatos com o mesmo número (pode haver 2 no mesmo dia)
+    _candidatos = await listarCandidatosPedido(client, numero);
+    if (!_candidatos.length) {
+      // último recurso: link sem cliente no banco de pedidos
+      const { data: linkOnly } = await client.from("gorjeta_links").select("*")
+        .eq("codigo", codigo).maybeSingle();
+      if (linkOnly && linkOnly.cliente_nome) {
+        _candidatos = [{
+          id: linkOnly.pedido_id,
+          numero_pedido: linkOnly.numero_pedido,
+          cliente_nome: linkOnly.cliente_nome,
+          entregador_nome: linkOnly.entregador_nome,
+          created_at: linkOnly.created_at,
+          fonte: "link",
+          link: linkOnly
+        }];
       }
-      linkData = {
-        codigo: codigo,
-        numero_pedido: numDoCodigo,
-        cliente_nome: resolvido.cliente_nome,
-        entregador_nome: resolvido.entregador_nome,
-        pedido_id: resolvido.pedido_id,
-        ativo: true
-      };
     }
 
-    if (linkData.ativo === false) {
-      renderErro("Link desativado", "Esta gorjeta não está mais disponível.");
+    if (!_candidatos.length) {
+      renderErro("Pedido não encontrado", "Não achamos o pedido #" + numero + " no sistema.");
       return;
     }
 
-    // 4) entregador: o pedido só é ligado ao entregador depois (quem fez a entrega).
-    //    Se o link ainda não tem nome, busca em pedidos_entrega_dia pelo número.
-    let nomeEnt = String(linkData.entregador_nome || "").trim();
-    if (!nomeEnt) {
-      const num = String(linkData.numero_pedido || numDoCodigo || "").trim();
-      const resolvido = await resolverEntregadorDoPedido(client, num);
-      if (resolvido) {
-        if (resolvido.entregador_nome) {
-          nomeEnt = resolvido.entregador_nome;
-          linkData.entregador_nome = nomeEnt;
-        }
-        if (!linkData.cliente_nome && resolvido.cliente_nome) {
-          linkData.cliente_nome = resolvido.cliente_nome;
-        }
-        if (!linkData.pedido_id && resolvido.pedido_id) {
-          linkData.pedido_id = resolvido.pedido_id;
-        }
-      }
-    }
-
-    if (!nomeEnt) {
-      // pedido existe, mas ninguém pegou/finalizou ainda
-      renderErro(
-        "Entregador ainda não definido",
-        "O pedido #" + (linkData.numero_pedido || "—") + " ainda não está ligado a um entregador. Tente de novo depois da entrega."
-      );
-      return;
-    }
-
-    entregador = await buscarCadastroEntregador(client, nomeEnt, linkData.entregador_id);
-    renderPagina();
+    // NÃO mostra cliente/entregador ainda — pede confirmação do nome
+    renderConfirmacaoNome(numero);
   } catch (e) {
     console.error(e);
     renderErro("Erro de conexão", "Não foi possível carregar os dados. Tente novamente em instantes.");
