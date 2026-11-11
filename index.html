@@ -45,9 +45,14 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .obrigado{text-align:center;padding:20px 10px}.obrigado .big{font-size:56px}.obrigado h3{font-size:20px;margin:8px 0 4px;color:var(--green)}
   .input-erro{font-size:12px;color:var(--red);min-height:18px;margin-bottom:8px;text-align:center}
+
+  .build-badge{position:fixed;top:8px;right:10px;z-index:999;font-size:10px;color:#8b93a7;opacity:.65;background:rgba(0,0,0,.35);padding:3px 8px;border-radius:999px;pointer-events:none;letter-spacing:.02em;white-space:nowrap}
+  .debug-toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:#f0c14a;color:#111;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:.2s;z-index:100}
+  .debug-toast.show{opacity:1}
 </style>
 </head>
 <body>
+<div class="build-badge" id="buildBadge">modificado em 11/11/2026 00:35</div><div class="debug-toast" id="debugToast"></div>
 <div class="wrap" id="app">
   <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1><p>Gorjeta para o entregador</p></div>
   <div class="status" id="loading"><div class="big">🛵</div><h3>Carregando…</h3><p>Buscando dados do pedido</p></div>
@@ -146,6 +151,7 @@ function renderPagina(){
   const apelido=(entregador && (entregador.apelido||entregador.nome))||linkData.entregador_nome||"Entregador";
   const cliente=linkData.cliente_nome||"Cliente"; const pedido=linkData.numero_pedido||extrairNumeroPedido(linkData.codigo)||"—";
   const temChave=!!(entregador && entregador.chave && String(entregador.chave).trim());
+  // CORREÇÃO V3: botão SEMPRE renderizado. Antes, sem chave ele nem aparecia e parecia que "nada fazia".
   document.getElementById("app").innerHTML=`
     <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1><p>Gorjeta para o entregador</p></div>
     <div class="card"><h2>Entrega</h2>
@@ -163,9 +169,9 @@ function renderPagina(){
       <div class="livre-box"><label>Ou digite outro valor (mín. R$ 1)</label>
         <div class="livre-input-wrap" id="livreWrap"><span>R$</span><input id="valorLivre" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00"/></div>
       </div>
-      ${temChave?`<button type="button" class="btn btn-pix" id="btnGerar">💚 Gerar PIX · R$ ${fmtBRL(valorSel)}</button>
-        <div class="pix-box" id="pixBox"><div class="hint" style="margin-top:0;margin-bottom:8px">Escaneie o QR Code no app do seu banco<br>ou copie o código Pix abaixo</div><div class="pix-qr"><canvas id="qrCanvas"></canvas></div><div class="pix-code" id="pixCode"></div><button type="button" class="btn btn-copy" id="btnCopiar">📋 Copiar código Pix</button><button type="button" class="btn btn-sec" id="btnPago">✓ Já paguei a gorjeta</button></div>`
-      :`<div class="status" style="padding:20px 0"><div class="big" style="font-size:32px">🔑</div><h3 style="font-size:15px">Chave Pix não cadastrada</h3><p style="font-size:12px">O entregador ${esc(apelido)} ainda não informou a chave Pix no sistema.</p><button type="button" class="btn btn-sec" id="btnTentarNovamente" style="margin-top:12px">Tentar novamente</button></div>`}
+      ${`<button type="button" class="btn btn-pix" id="btnGerar">💚 Gerar PIX · R$ ${fmtBRL(valorSel)}</button>
+        ${!temChave?`<p style="font-size:12px;color:var(--red);text-align:center;margin-top:8px">⚠️ Chave Pix do entregador ainda não cadastrada. Ao clicar, vou mostrar o motivo.</p>`:``}
+        <div class="pix-box" id="pixBox"><div class="hint" style="margin-top:0;margin-bottom:8px">Escaneie o QR Code no app do seu banco<br>ou copie o código Pix abaixo</div><div class="pix-qr"><canvas id="qrCanvas"></canvas><img id="qrImg" style="display:none" alt="QR Pix"/></div><div class="pix-code" id="pixCode"></div><button type="button" class="btn btn-copy" id="btnCopiar">📋 Copiar código Pix</button><button type="button" class="btn btn-sec" id="btnPago">✓ Já paguei a gorjeta</button></div>`}
     </div>
     <p class="hint">A gorjeta é opcional e vai 100% para o entregador.<br>Valor mínimo: R$ 1,00</p>`;
 
@@ -210,7 +216,10 @@ function gerarPix(){
   catch(e){ console.warn(e); toast(e && e.message?e.message:"Não foi possível gerar o PIX"); return; }
   const box=document.getElementById("pixBox"); const code=document.getElementById("pixCode"); const canvas=document.getElementById("qrCanvas");
   if(code) code.textContent=pixPayload; if(box) box.classList.add("show");
-  try{ if(window.QRCode && canvas){ QRCode.toCanvas(canvas,pixPayload,{width:240,margin:1,errorCorrectionLevel:"M"},(err)=>{ if(err){ console.warn(err); canvas.style.display="none"; } else { canvas.style.display="block"; } }); } }
+  // QR: tenta lib, se falhar usa imagem externa (não trava o fluxo)
+  const qrImg=document.getElementById("qrImg");
+  try{ if(window.QRCode && canvas){ QRCode.toCanvas(canvas,pixPayload,{width:240,margin:1,errorCorrectionLevel:"M"},(err)=>{ if(err){ console.warn(err); canvas.style.display="none"; if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } } else { canvas.style.display="block"; if(qrImg) qrImg.style.display="none"; } }); } else if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; canvas.style.display="none"; } }
+  catch(e){ console.warn(e); if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } }
   catch(e){ console.warn(e); }
   if(box && box.scrollIntoView) setTimeout(()=>box.scrollIntoView({behavior:"smooth",block:"start"}),80);
   try{ const client=getClient(); client.from("gorjetas").insert({ numero_pedido:pedido, pedido_id:linkData.pedido_id||null, cliente_nome:linkData.cliente_nome, entregador_nome:entregador.nome||entregador.apelido, entregador_id:entregador.id||null, valor:v, status:"gerado" }).then(()=>{}); }catch(_){}
@@ -229,6 +238,22 @@ async function listarCandidatosPedido(client,numeroPedido){
   return Array.from(mapa.values()).filter(c=>String(c.cliente_nome||"").trim());
 }
 
+
+// ===== V3: DELEGAÇÃO GLOBAL - funciona mesmo após innerHTML trocar tudo =====
+function debugToast(msg){ const d=document.getElementById("debugToast"); if(!d) return; d.textContent=msg; d.classList.add("show"); setTimeout(()=>d.classList.remove("show"),1200); }
+document.addEventListener("click", function(e){
+  const valBtn = e.target.closest && e.target.closest(".val-btn");
+  if(valBtn){ e.preventDefault(); selecionarValor(Number(valBtn.dataset.v)); debugToast("Valor R$ "+valBtn.dataset.v+" selecionado"); return; }
+  const id = e.target.id || (e.target.closest && e.target.closest("button") && e.target.closest("button").id);
+  if(id==="btnGerar"){ e.preventDefault(); gerarPix(); return; }
+  if(id==="btnCopiar"){ e.preventDefault(); copiarPix(); return; }
+  if(id==="btnPago"){ e.preventDefault(); marcarEnviado(); return; }
+  if(id==="btnContinuar"){ e.preventDefault(); confirmarNomeCliente(); return; }
+  if(id==="btnTentarNovamente"){ e.preventDefault(); location.reload(); return; }
+});
+document.addEventListener("input", function(e){ if(e.target && e.target.id==="valorLivre"){ onLivreInput(); } });
+document.addEventListener("focusin", function(e){ if(e.target && e.target.id==="valorLivre"){ ativarLivre(); } });
+
 async function iniciar(){
   const codigo=extrairCodigo(); if(!codigo){ renderErro("Link inválido","Escaneie o QR Code da comanda para abrir a página de gorjeta."); return; }
   try{
@@ -243,6 +268,10 @@ async function iniciar(){
     renderConfirmacaoNome(numero);
   }catch(e){ console.error(e); renderErro("Erro de conexão","Não foi possível carregar os dados. Tente novamente em instantes."); }
 }
+
+// Badge de modificação: mostra hora embutida no build + lastModified do navegador
+(function(){ try{ var b=document.getElementById("buildBadge"); if(b){ var lm=document.lastModified; if(lm){ var d=new Date(lm); if(!isNaN(d)){ b.textContent="modificado em "+String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); } } } }catch(e){} })();
+
 iniciar();
 </script>
 </body>
