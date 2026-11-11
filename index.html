@@ -46,13 +46,12 @@
   .obrigado{text-align:center;padding:20px 10px}.obrigado .big{font-size:56px}.obrigado h3{font-size:20px;margin:8px 0 4px;color:var(--green)}
   .input-erro{font-size:12px;color:var(--red);min-height:18px;margin-bottom:8px;text-align:center}
 
-  .build-badge{position:fixed;top:8px;right:10px;z-index:999;font-size:10px;color:#8b93a7;opacity:.65;background:rgba(0,0,0,.35);padding:3px 8px;border-radius:999px;pointer-events:none;letter-spacing:.02em;white-space:nowrap}
-  .debug-toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);background:#f0c14a;color:#111;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:.2s;z-index:100}
-  .debug-toast.show{opacity:1}
+  .build-badge{position:fixed;top:8px;right:10px;z-index:9999;font-size:10px;color:#8b93a7;opacity:.7;background:rgba(0,0,0,.45);padding:3px 8px;border-radius:999px;pointer-events:none;white-space:nowrap}
+  .ver-rodape{font-size:10px;color:#8b93a7;opacity:.6;text-align:center;margin-top:6px}
 </style>
 </head>
 <body>
-<div class="build-badge" id="buildBadge">modificado em 11/11/2026 00:35</div><div class="debug-toast" id="debugToast"></div>
+<div class="build-badge" id="buildBadge">modificado em 11/11/2026 00:48</div>
 <div class="wrap" id="app">
   <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1><p>Gorjeta para o entregador</p></div>
   <div class="status" id="loading"><div class="big">🛵</div><h3>Carregando…</h3><p>Buscando dados do pedido</p></div>
@@ -151,7 +150,6 @@ function renderPagina(){
   const apelido=(entregador && (entregador.apelido||entregador.nome))||linkData.entregador_nome||"Entregador";
   const cliente=linkData.cliente_nome||"Cliente"; const pedido=linkData.numero_pedido||extrairNumeroPedido(linkData.codigo)||"—";
   const temChave=!!(entregador && entregador.chave && String(entregador.chave).trim());
-  // CORREÇÃO V3: botão SEMPRE renderizado. Antes, sem chave ele nem aparecia e parecia que "nada fazia".
   document.getElementById("app").innerHTML=`
     <div class="logo"><div class="emoji">🥔</div><h1>A Batataria</h1><p>Gorjeta para o entregador</p></div>
     <div class="card"><h2>Entrega</h2>
@@ -170,10 +168,9 @@ function renderPagina(){
         <div class="livre-input-wrap" id="livreWrap"><span>R$</span><input id="valorLivre" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00"/></div>
       </div>
       ${`<button type="button" class="btn btn-pix" id="btnGerar">💚 Gerar PIX · R$ ${fmtBRL(valorSel)}</button>
-        ${!temChave?`<p style="font-size:12px;color:var(--red);text-align:center;margin-top:8px">⚠️ Chave Pix do entregador ainda não cadastrada. Ao clicar, vou mostrar o motivo.</p>`:``}
-        <div class="pix-box" id="pixBox"><div class="hint" style="margin-top:0;margin-bottom:8px">Escaneie o QR Code no app do seu banco<br>ou copie o código Pix abaixo</div><div class="pix-qr"><canvas id="qrCanvas"></canvas><img id="qrImg" style="display:none" alt="QR Pix"/></div><div class="pix-code" id="pixCode"></div><button type="button" class="btn btn-copy" id="btnCopiar">📋 Copiar código Pix</button><button type="button" class="btn btn-sec" id="btnPago">✓ Já paguei a gorjeta</button></div>`}
+        <div class="pix-box" id="pixBox"><div class="hint" style="margin-top:0;margin-bottom:8px">Escaneie o QR Code no app do seu banco<br>ou copie o código Pix abaixo</div><div class="pix-qr"><canvas id="qrCanvas"></canvas><img id="qrImg" style="display:none" alt="QR Pix"/></div><div class="pix-code" id="pixCode"></div><div id="pixErro" style="display:none;font-size:12px;color:var(--red);text-align:center;margin-top:8px"></div><button type="button" class="btn btn-copy" id="btnCopiar">📋 Copiar código Pix</button><button type="button" class="btn btn-sec" id="btnPago">✓ Já paguei a gorjeta</button></div>`}
     </div>
-    <p class="hint">A gorjeta é opcional e vai 100% para o entregador.<br>Valor mínimo: R$ 1,00</p>`;
+    <p class="ver-rodape" id="verRodape">v4 · modificado em 11/11/2026 00:48</p><p class="hint">A gorjeta é opcional e vai 100% para o entregador.<br>Valor mínimo: R$ 1,00</p>`;
 
   // --- bind eventos ---
   document.querySelectorAll(".val-btn").forEach(b=>{ b.addEventListener("click",()=>selecionarValor(Number(b.dataset.v))); });
@@ -209,18 +206,32 @@ function onLivreInput(){
 function normalizarChavePix(c){ c=String(c||"").trim(); if(/[@a-zA-Z]/.test(c)) return c; const d=c.replace(/\D/g,""); if(d.length===11 && d.startsWith("55")===false && c.includes("(")) return "+55"+d; if(/^\+?55\d{10,11}$/.test(c.replace(/[\s().-]/g,""))) return "+"+d; return d; }
 
 function gerarPix(){
-  const v=Number(valorSel); if(!(v>=1)){ toast("Valor mínimo: R$ 1,00"); return; }
-  if(!entregador || !String(entregador.chave||"").trim()){ toast("Chave PIX não cadastrada"); return; }
+  __feedback("Gerando PIX...");
+  const v = Number(valorSel);
+  const box = document.getElementById("pixBox");
+  const errEl = document.getElementById("pixErro");
+  function mostraErro(msg){
+    if(box) box.classList.add("show");
+    if(errEl){ errEl.style.display="block"; errEl.textContent = "⚠️ " + msg; }
+    __feedback(msg);
+    console.error("[PIX]", msg, {valor: v, entregador});
+  }
+  if(!(v>=1)){ mostraErro("Valor mínimo: R$ 1,00"); return; }
+  if(!entregador || !String(entregador.chave||"").trim()){
+    mostraErro("Chave PIX do entregador '" + ((entregador && (entregador.apelido||entregador.nome))||linkData.entregador_nome||"") + "' não está cadastrada no sistema. Avise a loja.");
+    return;
+  }
   const pedido=(linkData && linkData.numero_pedido)||"";
   try{ pixPayload=gerarPixPayload({ chave:normalizarChavePix(entregador.chave), nome:entregador.nome||entregador.apelido, cidade:"CAMPO MOURAO", valor:v, txid:"GORJETA"+pedido }); }
-  catch(e){ console.warn(e); toast(e && e.message?e.message:"Não foi possível gerar o PIX"); return; }
-  const box=document.getElementById("pixBox"); const code=document.getElementById("pixCode"); const canvas=document.getElementById("qrCanvas");
+  catch(e){ mostraErro(e && e.message ? e.message : "Não foi possível gerar o PIX"); return; }
+  const code=document.getElementById("pixCode"); const canvas=document.getElementById("qrCanvas"); const qrImg=document.getElementById("qrImg");
+  if(errEl){ errEl.style.display="none"; errEl.textContent=""; }
   if(code) code.textContent=pixPayload; if(box) box.classList.add("show");
-  // QR: tenta lib, se falhar usa imagem externa (não trava o fluxo)
-  const qrImg=document.getElementById("qrImg");
-  try{ if(window.QRCode && canvas){ QRCode.toCanvas(canvas,pixPayload,{width:240,margin:1,errorCorrectionLevel:"M"},(err)=>{ if(err){ console.warn(err); canvas.style.display="none"; if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } } else { canvas.style.display="block"; if(qrImg) qrImg.style.display="none"; } }); } else if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; canvas.style.display="none"; } }
-  catch(e){ console.warn(e); if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } }
-  catch(e){ console.warn(e); }
+  __feedback("PIX gerado! Escaneie ou copie o código.");
+  try{
+    if(window.QRCode && canvas){ QRCode.toCanvas(canvas,pixPayload,{width:240,margin:1,errorCorrectionLevel:"M"},(err)=>{ if(err){ canvas.style.display="none"; if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } } else { canvas.style.display="block"; if(qrImg) qrImg.style.display="none"; } }); }
+    else if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; if(canvas) canvas.style.display="none"; }
+  }catch(e){ console.warn(e); if(qrImg){ qrImg.src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data="+encodeURIComponent(pixPayload); qrImg.style.display="block"; } }
   if(box && box.scrollIntoView) setTimeout(()=>box.scrollIntoView({behavior:"smooth",block:"start"}),80);
   try{ const client=getClient(); client.from("gorjetas").insert({ numero_pedido:pedido, pedido_id:linkData.pedido_id||null, cliente_nome:linkData.cliente_nome, entregador_nome:entregador.nome||entregador.apelido, entregador_id:entregador.id||null, valor:v, status:"gerado" }).then(()=>{}); }catch(_){}
 }
@@ -239,17 +250,18 @@ async function listarCandidatosPedido(client,numeroPedido){
 }
 
 
-// ===== V3: DELEGAÇÃO GLOBAL - funciona mesmo após innerHTML trocar tudo =====
-function debugToast(msg){ const d=document.getElementById("debugToast"); if(!d) return; d.textContent=msg; d.classList.add("show"); setTimeout(()=>d.classList.remove("show"),1200); }
+// ===== V4 DELEGAÇÃO GLOBAL: clique funciona mesmo após innerHTML trocar tudo =====
+function __feedback(msg){ const el=document.getElementById("toast"); if(el){ el.textContent=msg; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),2200); } }
 document.addEventListener("click", function(e){
-  const valBtn = e.target.closest && e.target.closest(".val-btn");
-  if(valBtn){ e.preventDefault(); selecionarValor(Number(valBtn.dataset.v)); debugToast("Valor R$ "+valBtn.dataset.v+" selecionado"); return; }
-  const id = e.target.id || (e.target.closest && e.target.closest("button") && e.target.closest("button").id);
-  if(id==="btnGerar"){ e.preventDefault(); gerarPix(); return; }
-  if(id==="btnCopiar"){ e.preventDefault(); copiarPix(); return; }
-  if(id==="btnPago"){ e.preventDefault(); marcarEnviado(); return; }
-  if(id==="btnContinuar"){ e.preventDefault(); confirmarNomeCliente(); return; }
-  if(id==="btnTentarNovamente"){ e.preventDefault(); location.reload(); return; }
+  const vb = e.target.closest ? e.target.closest(".val-btn") : null;
+  if(vb){ e.preventDefault(); selecionarValor(Number(vb.dataset.v)); __feedback("Valor R$ "+vb.dataset.v+" selecionado"); return; }
+  const btn = e.target.closest ? e.target.closest("button") : null;
+  if(!btn) return;
+  if(btn.id==="btnGerar"){ e.preventDefault(); gerarPix(); return; }
+  if(btn.id==="btnCopiar"){ e.preventDefault(); copiarPix(); return; }
+  if(btn.id==="btnPago"){ e.preventDefault(); marcarEnviado(); return; }
+  if(btn.id==="btnContinuar"){ e.preventDefault(); confirmarNomeCliente(); return; }
+  if(btn.id==="btnTentarNovamente"){ e.preventDefault(); location.reload(); return; }
 });
 document.addEventListener("input", function(e){ if(e.target && e.target.id==="valorLivre"){ onLivreInput(); } });
 document.addEventListener("focusin", function(e){ if(e.target && e.target.id==="valorLivre"){ ativarLivre(); } });
@@ -269,8 +281,7 @@ async function iniciar(){
   }catch(e){ console.error(e); renderErro("Erro de conexão","Não foi possível carregar os dados. Tente novamente em instantes."); }
 }
 
-// Badge de modificação: mostra hora embutida no build + lastModified do navegador
-(function(){ try{ var b=document.getElementById("buildBadge"); if(b){ var lm=document.lastModified; if(lm){ var d=new Date(lm); if(!isNaN(d)){ b.textContent="modificado em "+String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); } } } }catch(e){} })();
+(function(){ try{ var b=document.getElementById("buildBadge"); if(b && document.lastModified){ var d=new Date(document.lastModified); if(!isNaN(d)){ b.textContent="modificado em "+String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); } } }catch(e){} })();
 
 iniciar();
 </script>
